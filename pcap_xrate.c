@@ -221,7 +221,7 @@ int main(int argc, char **argv)
 	fprintf(stdout,
 		"Counted %lu IPv4 packet bytes or %lu off-the-wire"
 		" transmitted in %lu seconds.\n",
-		total_ip4_bytes, total_pkt_bytes, ts_sec_end - ts_sec_begin);
+		total_ip4_bytes, total_pkt_bytes, ts_sec_end - ts_sec_begin + 1);
 
 	return 0;
 }
