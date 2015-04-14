@@ -9,6 +9,7 @@
  * kontaxis 2015-04-14
  */
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -127,6 +128,31 @@ struct udphdr
 #define unlikely(x)     __builtin_expect((x),0)
 
 
+#define RESET_COUNTERS \
+{\
+	total_pkt_bytes = 0; \
+	total_ip4_bytes = 0; \
+\
+	ts_sec_begin   = 0; \
+	ts_sec_end     = 0; \
+\
+	total_pkts_ok  = 0; \
+	total_pkts_err = 0; \
+}
+
+#define PRINT_COUNTERS \
+{\
+	fprintf(stdout, \
+		"Processed %lu good packets, %lu erroenous" \
+		" between epoch %lu and %lu.\n", \
+		total_pkts_ok, total_pkts_err, ts_sec_begin, ts_sec_end); \
+\
+	fprintf(stdout, \
+		"Counted %lu IPv4 packet bytes or %lu off-the-wire" \
+		" transmitted in %lu seconds.\n", \
+		total_ip4_bytes, total_pkt_bytes, ts_sec_end - ts_sec_begin + 1); \
+}
+
 int main(int argc, char **argv)
 {
 	pcap_t * read_handle = NULL;
@@ -163,14 +189,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	total_pkt_bytes = 0;
-	total_ip4_bytes = 0;
-
-	ts_sec_begin   = 0;
-	ts_sec_end     = 0;
-
-	total_pkts_ok  = 0;
-	total_pkts_err = 0;
+	RESET_COUNTERS
 
 	while ((packet = pcap_next(read_handle, &header)))
 	{
@@ -189,6 +208,10 @@ int main(int argc, char **argv)
 				"%lu #%lu WARNING: ether->ether_type != ETHERTYPE_IP. Ignoring.\n",
 				header.ts.tv_sec, total_pkts_ok + total_pkts_err + 1);
 #endif
+			if (unlikely(ULONG_MAX - total_pkts_err < 1)) {
+				PRINT_COUNTERS
+				RESET_COUNTERS
+			}
 			total_pkts_err++;
 			continue;
 		}
@@ -202,26 +225,33 @@ int main(int argc, char **argv)
 			fprintf(stderr, "%lu #%lu WARNING: IP_V(ip) != 4. Ignoring.\n",
 				header.ts.tv_sec, total_pkts_ok + total_pkts_err + 1);
 #endif
+			if (unlikely(ULONG_MAX - total_pkts_err < 1)) {
+				PRINT_COUNTERS
+				RESET_COUNTERS
+			}
 			total_pkts_err++;
 			continue;
+		}
+
+		/* Counter(s) about to overflow. Print what we have so far and reset. */
+		if (unlikely(
+				ULONG_MAX - total_ip4_bytes < n16toh16(ip->tot_len) ||
+				ULONG_MAX - total_pkt_bytes < header.len            ||
+				ULONG_MAX - total_pkts_ok   < 1
+				)) {
+			PRINT_COUNTERS
+			RESET_COUNTERS
 		}
 
 		total_ip4_bytes += n16toh16(ip->tot_len);
 		total_pkt_bytes += header.len;
 
 		total_pkts_ok++;
-  }
+	}
 
 	pcap_close(read_handle);
 
-	fprintf(stdout,
-		"Processed %lu good packets, %lu erroenous between epoch %lu and %lu.\n",
-		total_pkts_ok, total_pkts_err, ts_sec_begin, ts_sec_end);
-
-	fprintf(stdout,
-		"Counted %lu IPv4 packet bytes or %lu off-the-wire"
-		" transmitted in %lu seconds.\n",
-		total_ip4_bytes, total_pkt_bytes, ts_sec_end - ts_sec_begin + 1);
+	PRINT_COUNTERS
 
 	return 0;
 }
